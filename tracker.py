@@ -30,7 +30,7 @@ def send_email(subject, body):
         print(f"❌ Email failed: {e}")
 
 def search_flipkart(query, page, max_results=15):
-    url = f"https://www.flipkart.com/search?q={query}"
+    url = f"https://www.amazon.com/search?q={query}"
     print(f"[{datetime.now()}] 🔎 Searching: {url}")
     page.goto(url, timeout=60000)
 
