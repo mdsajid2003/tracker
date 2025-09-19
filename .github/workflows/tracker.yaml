@@ -29,4 +29,4 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           DEBUG_SAVE_HTML: "0"   # set to "1" to save failing page HTML files
-        run: python tracker_playwright.py
+        run: python tracker.py
