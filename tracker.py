@@ -1,27 +1,59 @@
-# tracker_playwright.py
 import os
 import json
-import time
+import asyncio
+from datetime import datetime
+from playwright.async_api import async_playwright
 import smtplib
 from email.message import EmailMessage
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
 
-# ---------- Config / env ----------
+# ---------- Email Settings ----------
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = 587
+SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
-ALERT_EMAIL = os.getenv("ALERT_EMAIL", "")  # fallback recipient if per-product not provided
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "")
 
-# Debug option: set DEBUG_SAVE_HTML = "1" in secrets to save HTML when parsing fails
-DEBUG_SAVE_HTML = os.getenv("DEBUG_SAVE_HTML", "0") == "1"
 
-# ---------- Helpers ----------
-def send_email(subject: str, body: str, to_email: str) -> bool:
-    """Send an email via SMTP. Returns True on success."""
-    if not (SMTP_USER and SMTP_PASS and to_email):
-        print("⚠️ Email not sent: SMTP_USER, SMTP_PASS, or recipient missing")
-        return False
+async def extract_title_and_price_from_page(page):
+    """Extract product title and price using Playwright selectors."""
+    try:
+        title_el = await page.wait_for_selector("span.B_NuCI, span.yhB1nd", timeout=8000)
+        title = (await title_el.inner_text()).strip()
+    except:
+        title = ""
+
+    try:
+        price_el = await page.wait_for_selector(
+            "div._30jeq3._16Jk6d, div._30jeq3, div._25b18c ._30jeq3",
+            timeout=8000,
+        )
+        raw_price = await price_el.inner_text()
+        # Clean price → keep only digits
+        digits = "".join(ch for ch in raw_price if ch.isdigit())
+        price = int(digits) if digits else None
+    except:
+        price = None
+
+    return title, price
+
+
+async def fetch_flipkart(url):
+    """Open product page and fetch title + price."""
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page(user_agent="Mozilla/5.0")
+        await page.goto(url, timeout=30000)
+        title, price = await extract_title_and_price_from_page(page)
+        await browser.close()
+        return title, price
+
+
+def send_email(subject, body, recipient=None):
+    """Send email via SMTP."""
+    to_email = recipient or ALERT_EMAIL
+    if not all([SMTP_USER, SMTP_PASS, to_email]):
+        print("⚠️ No recipient email configured (per-product or ALERT_EMAIL). Skipping send.")
+        return
 
     try:
         msg = EmailMessage()
@@ -30,154 +62,42 @@ def send_email(subject: str, body: str, to_email: str) -> bool:
         msg["Subject"] = subject
         msg.set_content(body)
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
-        print(f"📧 Email sent to {to_email} — {subject}")
-        return True
+        print(f"📧 Alert sent to {to_email}")
+
     except Exception as e:
-        print(f"❌ Failed to send email to {to_email}: {e}")
-        return False
+        print(f"❌ Failed to send email: {e}")
 
-def parse_price_text(text: str):
-    """Extract integer price from a text like '₹ 12,999' -> 12999"""
-    if not text:
-        return None
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return int(digits) if digits else None
 
-def extract_title_and_price_from_page(page):
-    """
-    Try several selectors and fallbacks to get title & price from Flipkart page.
-    Returns (title:str, price:int|None).
-    """
-    selectors_title = ["span.B_NuCI", "span.yhB1nd", "h1", "title"]
-    selectors_price = ["div._30jeq3._16Jk6d", "div._30jeq3", "span._30jeq3._16Jk6d", "span._30jeq3"]
+async def main():
+    # Load products
+    with open("products.json", "r", encoding="utf-8") as f:
+        products = json.load(f)
 
-    title = None
-    price_text = None
+    for i, item in enumerate(products, start=1):
+        url = item["url"]
+        target = item.get("target_price")
+        recipient = item.get("email")  # optional per-product email
 
-    for sel in selectors_title:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Checking #{i}: {url}")
+
         try:
-            handle = page.locator(sel)
-            if handle.count() > 0:
-                txt = handle.first.inner_text(timeout=2000).strip()
-                if txt:
-                    title = txt
-                    break
-        except Exception:
-            continue
+            title, price = await fetch_flipkart(url)
+            print(f"Parsed -> title: '{title}', price: {price}")
 
-    for sel in selectors_price:
-        try:
-            handle = page.locator(sel)
-            if handle.count() > 0:
-                txt = handle.first.inner_text(timeout=2000).strip()
-                if txt:
-                    price_text = txt
-                    break
-        except Exception:
-            continue
+            # Always send current price (irrespective of target)
+            if price:
+                send_email(
+                    f"Flipkart Price Update: {title}",
+                    f"Product: {title}\nCurrent Price: ₹{price}\nTarget: ₹{target}\nURL: {url}",
+                    recipient,
+                )
+        except Exception as e:
+            print(f"⚠️ Error fetching {url}: {e}")
 
-    # fallback: search page content for '₹' and extract nearby digits
-    if not price_text:
-        try:
-            html = page.content()
-            i = html.find("₹")
-            if i != -1:
-                fragment = html[i:i+80]
-                candidate = "".join(ch for ch in fragment if ch.isdigit())
-                if candidate:
-                    price_text = candidate
-        except Exception:
-            price_text = None
-
-    price = parse_price_text(price_text) if price_text else None
-    if not title:
-        try:
-            title = page.title()
-        except Exception:
-            title = "Unknown title"
-
-    return title, price
-
-# ---------- Main ----------
-def main():
-    # Load products.json
-    try:
-        with open("products.json", "r", encoding="utf-8") as f:
-            products = json.load(f)
-    except Exception as e:
-        print(f"❌ Failed to load products.json: {e}")
-        return
-
-    if not isinstance(products, list) or len(products) == 0:
-        print("No products found in products.json. Exiting.")
-        return
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
-        context = browser.new_context(
-            user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"),
-            locale="en-US"
-        )
-        page = context.new_page()
-
-        for idx, item in enumerate(products, 1):
-            url = item.get("url")
-            target = item.get("target_price")   # kept for info in email
-            to_email = item.get("alert_email") or ALERT_EMAIL
-
-            if not url:
-                print(f"Skipping invalid entry #{idx}: missing url")
-                continue
-
-            print(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Checking #{idx}: {url}")
-            try:
-                page.goto(url, timeout=60000)
-                try:
-                    page.wait_for_selector("._30jeq3", timeout=8000)
-                except Exception:
-                    pass  # continue to fallback parsing
-
-                title, price = extract_title_and_price_from_page(page)
-                print(f"Parsed -> title: {title!r}, price: {price}")
-
-                if price is None and DEBUG_SAVE_HTML:
-                    try:
-                        fname = f"debug_product_{idx}_{int(time.time())}.html"
-                        with open(fname, "w", encoding="utf-8") as fh:
-                            fh.write(page.content())
-                        print(f"Saved debug HTML -> {fname}")
-                    except Exception as e:
-                        print(f"Could not save debug HTML: {e}")
-
-                # Always send update mail for this product
-                subject = f"Flipkart Price Update: {title[:80]}"
-                body_lines = [
-                    f"Product: {title}",
-                    f"URL: {url}",
-                    f"Checked at: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-                    f"Current Price: {'₹' + str(price) if price is not None else 'Not found'}",
-                    f"Target Price: {'₹' + str(target) if target is not None else 'Not set'}",
-                ]
-                body = "\n".join(body_lines)
-
-                if to_email:
-                    send_email(subject, body, to_email)
-                else:
-                    print("No recipient email configured (per-product or ALERT_EMAIL). Skipping send.")
-
-            except PWTimeoutError as te:
-                print(f"Timeout while loading {url}: {te}")
-            except Exception as e:
-                print(f"Error while processing {url}: {e}")
-
-        page.close()
-        context.close()
-        browser.close()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
