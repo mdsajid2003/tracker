@@ -7,10 +7,17 @@ import json
 
 # ---------- Email Settings (from GitHub Secrets) ----------
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)   # default to 587 if empty
+SMTP_PORT = 587   # default to 587 if empty
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASS = os.getenv("SMTP_PASS", "")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL", "")
+# ---------- Email Settings ----------
+# SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+# SMTP_PORT = 587   # Hard-coded, no need to load from secrets
+# SMTP_USER = os.getenv("SMTP_USER") or ""
+# SMTP_PASS = os.getenv("SMTP_PASS") or ""
+# ALERT_EMAIL = os.getenv("ALERT_EMAIL") or ""
+
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
