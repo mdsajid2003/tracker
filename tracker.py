@@ -8,7 +8,7 @@ from datetime import datetime
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "mdsajid2152@gmail.com"          # replace with your Gmail
-SMTP_PASS = "your_app_password"       # use Gmail App Password
+SMTP_PASS = "ecrb ubas enen oepy"       # use Gmail App Password
 ALERT_EMAIL = "mdsajid2152@gmail.com"        # where alerts are sent
 
 # ---------- Product Search Query ----------
