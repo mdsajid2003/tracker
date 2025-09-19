@@ -6,11 +6,11 @@ from email.message import EmailMessage
 import json
 
 # ---------- Email Settings (from GitHub Secrets) ----------
-SMTP_HOST = os.getenv("SMTP_HOST")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-ALERT_EMAIL = os.getenv("ALERT_EMAIL")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)   # default to 587 if empty
+SMTP_USER = os.getenv("SMTP_USER", "")
+SMTP_PASS = os.getenv("SMTP_PASS", "")
+ALERT_EMAIL = os.getenv("ALERT_EMAIL", "")
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -37,17 +37,25 @@ def send_email(subject, body):
     """
     Send an email alert using SMTP settings.
     """
-    msg = EmailMessage()
-    msg["From"] = SMTP_USER
-    msg["To"] = ALERT_EMAIL
-    msg["Subject"] = subject
-    msg.set_content(body)
+    if not all([SMTP_USER, SMTP_PASS, ALERT_EMAIL]):
+        print("⚠️ Email not sent: SMTP_USER, SMTP_PASS, or ALERT_EMAIL missing")
+        return
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
-        s.starttls()
-        s.login(SMTP_USER, SMTP_PASS)
-        s.send_message(msg)
-    print(f"📧 Alert sent to {ALERT_EMAIL}")
+    try:
+        msg = EmailMessage()
+        msg["From"] = SMTP_USER
+        msg["To"] = ALERT_EMAIL
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        print(f"📧 Alert sent to {ALERT_EMAIL}")
+
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
 
 if __name__ == "__main__":
     # Load products from JSON file
