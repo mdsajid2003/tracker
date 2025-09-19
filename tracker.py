@@ -1,112 +1,103 @@
 import os
 import smtplib
 from email.mime.text import MIMEText
-from datetime import datetime
 from playwright.sync_api import sync_playwright
+from datetime import datetime
 
-# 🔧 Hardcoded Gmail credentials (or use GitHub Secrets instead)
+# ---------- Email Settings (hardcoded for now) ----------
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "mdsajid2152@gmail.com"       # 🔹 change to your Gmail
-SMTP_PASS = "ecrb ubas enen oepy"          # 🔹 use Gmail App Password
-ALERT_EMAIL = "mdsajid84388@gmail.com"     # 🔹 recipient (can be same as SMTP_USER)
+SMTP_USER = "mdsajid2152@gmail.com"          # replace with your Gmail
+SMTP_PASS = "your_app_password"       # use Gmail App Password
+ALERT_EMAIL = "mdsajid2152@gmail.com"        # where alerts are sent
 
-# 🔗 Flipkart product links
-PRODUCTS = [
-    {
-        "url": "https://www.flipkart.com/oppo-k13x-5g-6000mah-45w-supervooc-charger-ai-midnight-violet-128-gb/p/itm62b2e62fbb43e?pid=MOBHDY9PPU2NRCZH",
-    },
-    {
-        "url": "https://www.flipkart.com/oppo-k13-5g-7000mah-80w-supervooc-charger-in-the-box-icy-purple-128-gb/p/itm6f2ebf6d205cf?pid=MOBHB392H7TZ4ZKJ",
-    },
-]
+# ---------- Product Search Query ----------
+SEARCH_QUERY = "oppo k13x 5g"   # <-- you can change this
 
+def send_email(subject, body):
+    msg = MIMEText(body, "html")  # HTML formatting
+    msg["Subject"] = subject
+    msg["From"] = SMTP_USER
+    msg["To"] = ALERT_EMAIL
 
-def send_email(subject, body, recipient=ALERT_EMAIL):
-    """Send email notification via Gmail SMTP"""
     try:
-        msg = MIMEText(body, "plain")
-        msg["Subject"] = subject
-        msg["From"] = SMTP_USER
-        msg["To"] = recipient
-
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, recipient, msg.as_string())
-
-        print(f"📧 Email sent to {recipient}: {subject}")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        print(f"📧 Email sent to {ALERT_EMAIL}")
     except Exception as e:
-        print(f"⚠️ Email not sent: {e}")
+        print(f"❌ Email failed: {e}")
 
+def search_flipkart(query, page, max_results=15):
+    url = f"https://www.flipkart.com/search?q={query}"
+    print(f"[{datetime.now()}] 🔎 Searching: {url}")
+    page.goto(url, timeout=60000)
 
-def get_product_info(page, url):
-    """Extract product title and price using multiple selectors"""
     try:
-        page.goto(url, timeout=60000)
-        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_selector("div._1AtVbE", timeout=15000)
+    except:
+        print("⚠️ No results found or page load timeout.")
+        return []
 
-        # Try multiple selectors for Title
-        title_selectors = [
-            "span.B_NuCI",  # old
-            "span.yhB1nd",  # new mobile layout
-            "h1",           # fallback
-        ]
-        title = "Unknown title"
-        for sel in title_selectors:
-            try:
-                title = page.locator(sel).first.inner_text(timeout=3000)
-                if title:
-                    break
-            except:
-                continue
+    items = []
+    cards = page.locator("div._1AtVbE div._13oc-S")  # result container
+    count = min(cards.count(), max_results)
 
-        # Try multiple selectors for Price
-        price_selectors = [
-            "div._30jeq3._16Jk6d",  # old
-            "div.Nx9bqj.CxhGGd",    # new
-            "div._25b18c",          # fallback
-        ]
-        price = None
-        for sel in price_selectors:
-            try:
-                price_text = page.locator(sel).first.inner_text(timeout=3000)
-                if price_text:
-                    price = int("".join(filter(str.isdigit, price_text)))
-                    break
-            except:
-                continue
+    for i in range(count):
+        card = cards.nth(i)
+        try:
+            title = card.locator("div._4rR01T").inner_text().strip()
+        except:
+            title = None
 
-        return title, price
-    except Exception as e:
-        print(f"[⚠️ Error scraping {url}] {e}")
-        return "Unknown title", None
+        try:
+            price_text = card.locator("div._30jeq3").inner_text().strip()
+            price = int("".join(filter(str.isdigit, price_text)))
+        except:
+            price = None
 
+        try:
+            link = card.locator("a").get_attribute("href")
+            link_full = f"https://www.flipkart.com{link}" if link else None
+        except:
+            link_full = None
+
+        if title and price and link_full:
+            items.append({"title": title, "price": price, "url": link_full})
+
+    return items
 
 def main():
-    print(f"[{datetime.now()}] 🔎 Checking current Flipkart prices...")
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
-        for i, product in enumerate(PRODUCTS, start=1):
-            url = product["url"]
-            print(f"[{datetime.now()}] Checking #{i}: {url}")
+        results = search_flipkart(SEARCH_QUERY, page, max_results=20)
+        results = [r for r in results if r.get("price") is not None]
 
-            title, price = get_product_info(page, url)
-            print(f"Parsed -> title: '{title}', price: {price}")
+        if not results:
+            print("⚠️ No valid products found.")
+            browser.close()
+            return
 
-            # Always send email update every run
-            if price is not None:
-                subject = f"[Flipkart] {title[:50]}..."
-                body = f"📌 Product: {title}\n💰 Current Price: ₹{price}\n🔗 Link: {url}"
-                send_email(subject, body)
-            else:
-                print("⚠️ No email sent because price was not found.")
+        results.sort(key=lambda r: r["price"])
+        top3 = results[:3]
 
+        # Build email content
+        body_lines = [f"<h2>Top 3 lowest Flipkart prices for '{SEARCH_QUERY}'</h2><ul>"]
+        for item in top3:
+            body_lines.append(
+                f"<li><b>{item['title']}</b> — ₹{item['price']} "
+                f"<a href='{item['url']}'>View</a></li>"
+            )
+        body_lines.append("</ul>")
+
+        subject = f"Top 3 lowest Flipkart prices for {SEARCH_QUERY} — {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        body = "\n".join(body_lines)
+
+        send_email(subject, body)
         browser.close()
-
 
 if __name__ == "__main__":
     main()
