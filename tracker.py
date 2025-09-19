@@ -64,7 +64,6 @@ def fetch_flipkart(url):
         except requests.exceptions.HTTPError as he:
             status = getattr(he.response, "status_code", None)
             print(f"HTTPError (attempt {attempt}/{MAX_RETRIES}) for {url}: {he} (status={status})")
-            # If 403, don't spam retries too aggressively but still retry a couple times
         except requests.exceptions.RequestException as re:
             print(f"RequestException (attempt {attempt}/{MAX_RETRIES}) for {url}: {re}")
         except Exception as e:
@@ -98,7 +97,7 @@ def send_email(subject, body, to_email):
             s.starttls()
             s.login(SMTP_USER, SMTP_PASS)
             s.send_message(msg)
-        print(f"📧 Alert sent to {to_email}")
+        print(f"📧 Email sent to {to_email}")
         return True
     except Exception as e:
         print(f"❌ Failed to send email to {to_email}: {e}")
@@ -121,10 +120,9 @@ if __name__ == "__main__":
     for item in products:
         url = item.get("url")
         target = item.get("target_price")
-        # optional per-product custom alert email; falls back to global ALERT_EMAIL
         to_email = item.get("alert_email") or ALERT_EMAIL
 
-        if not url or target is None:
+        if not url:
             print(f"Skipping invalid product entry: {item}")
             continue
 
@@ -132,12 +130,16 @@ if __name__ == "__main__":
             title, price = fetch_flipkart(url)
             print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {title} → Current Price: {price}, Target: {target}")
 
-            if price is not None and price <= int(target):
-                subject = f"Price Alert: {title} now ₹{price}"
-                body = f"The price for {title} is now ₹{price} (target was ₹{target}).\nURL: {url}"
-                send_email(subject, body, to_email)
-            else:
-                print("No alert (price above target or price not found).")
+            # ✅ Always send an update, no matter the price
+            subject = f"Price Update: {title} → ₹{price if price else 'N/A'}"
+            body = (
+                f"Here is the latest update for {title}:\n\n"
+                f"💰 Current Price: ₹{price if price else 'Not Found'}\n"
+                f"🎯 Target Price: ₹{target}\n\n"
+                f"🔗 Product Link: {url}\n"
+                f"⏰ Checked at: {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+            send_email(subject, body, to_email)
 
         except Exception as e:
             print(f"⚠️ Unexpected error processing {url}: {e}")
