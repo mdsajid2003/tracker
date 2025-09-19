@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 SMTP_USER = "mdsajid2152@gmail.com"       # 🔹 change to your Gmail
-SMTP_PASS = "your-app-password"          # 🔹 use Gmail App Password
+SMTP_PASS = "ecrb ubas enen oepy"          # 🔹 use Gmail App Password
 ALERT_EMAIL = "mdsajid84388@gmail.com"     # 🔹 recipient (can be same as SMTP_USER)
 
 # 🔗 Flipkart product links
