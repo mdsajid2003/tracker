@@ -9,7 +9,8 @@ jobs:
   run-tracker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -28,5 +29,5 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
-          DEBUG_SAVE_HTML: "0"   # set to "1" to save failing page HTML files
+          DEBUG_SAVE_HTML: "0"   # set to "1" to save failing page HTML files (for debugging)
         run: python tracker.py
