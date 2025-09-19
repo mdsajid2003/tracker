@@ -1,112 +1,89 @@
-import smtplib
-from email.mime.text import MIMEText
-from datetime import datetime
+import time
 from playwright.sync_api import sync_playwright
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime
 
-# -------------------------------
-# Hardcoded SMTP Config
-# -------------------------------
+# --- Gmail SMTP (⚠️ use app password if 2FA is on) ---
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
-SMTP_USER = "mdsajid2152@gmail.com"      # <-- your Gmail
-SMTP_PASS = "ecrb ubas enen oepy"         # <-- App Password from Google
+SMTP_USER = "mdsajid2152@gmail.com"
+SMTP_PASS = "ecrb ubas enen oepy"
 
-# -------------------------------
-# Email sender
-# -------------------------------
-def send_email(recipient, subject, body):
-    msg = MIMEText(body, "plain")
-    msg["Subject"] = subject
-    msg["From"] = SMTP_USER
-    msg["To"] = recipient
+# --- Products to track ---
+PRODUCTS = [
+    {
+        "url": "https://www.flipkart.com/oppo-k13x-5g-6000mah-45w-supervooc-charger-ai-midnight-violet-128-gb/p/itm62b2e62fbb43e?pid=MOBHDY9PPU2NRCZH",
+        "email": "your@gmail.com",
+    },
+    {
+        "url": "https://www.flipkart.com/oppo-k13-5g-7000mah-80w-supervooc-charger-in-the-box-icy-purple-128-gb/p/itm6f2ebf6d205cf?pid=MOBHB392H7TZ4ZKJ",
+        "email": "your@gmail.com",
+    },
+]
 
+def send_email(subject, body, to_email):
     try:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, [recipient], msg.as_string())
-        print(f"✅ Email sent to {recipient}")
+        msg = EmailMessage()
+        msg["From"] = SMTP_USER
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        print(f"[{datetime.now()}] 📧 Sent email to {to_email}")
     except Exception as e:
-        print(f"❌ Email error: {e}")
+        print(f"❌ Email failed: {e}")
 
-# -------------------------------
-# Flipkart scraper
-# -------------------------------
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
+def fetch_with_playwright(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, timeout=60000)
 
-def fetch_flipkart(url):
-    """Scrape title and clean price from Flipkart product page."""
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=HEADERS["User-Agent"])
-            page.goto(url, timeout=60000)
+        # Get product title
+        try:
+            title = page.locator("span.B_NuCI, span.yhB1nd").first.inner_text(timeout=20000)
+        except:
+            title = "Unknown title"
 
-            # Title
-            title = page.locator("span.B_NuCI, span.yhB1nd").first.inner_text(timeout=5000)
+        # Get product price
+        price = None
+        try:
+            price_tags = page.locator("div._30jeq3._16Jk6d, div._30jeq3").all_inner_texts()
+            for txt in price_tags:
+                clean = "".join(ch for ch in txt if ch.isdigit())
+                if clean.isdigit():
+                    val = int(clean)
+                    if 1000 <= val <= 200000:  # sensible filter
+                        price = val
+                        break
+        except Exception as e:
+            print(f"⚠️ Failed to parse price: {e}")
 
-            # Price
-            price_text = page.locator(
-                "div._30jeq3._16Jk6d, div._30jeq3, span:has-text('₹')"
-            ).first.inner_text(timeout=5000)
-            digits = "".join(ch for ch in price_text if ch.isdigit())
-            price = int(digits) if digits else None
-
-            browser.close()
-            return title.strip(), price
-    except Exception as e:
-        print(f"⚠️ Error scraping {url}: {e}")
-        return "Unknown title", None
-
-# -------------------------------
-# Main
-# -------------------------------
-def main():
-    ts = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    print(f"{ts} 🔎 Starting Flipkart tracker...")
-
-    # HARD-CODED products
-    products = [
-        {
-            "url": "https://www.flipkart.com/oppo-k13x-5g-6000mah-45w-supervooc-charger-ai-midnight-violet-128-gb/p/itm62b2e62fbb43e?pid=MOBHDY9PPU2NRCZH",
-            "target_price": 7000,
-            "email": "your-email@gmail.com"
-        },
-        {
-            "url": "https://www.flipkart.com/oppo-k13-5g-7000mah-80w-supervooc-charger-in-the-box-icy-purple-128-gb/p/itm6f2ebf6d205cf?pid=MOBHB392H7TZ4ZKJ",
-            "target_price": 10000,
-            "email": "your-email@gmail.com"
-        }
-    ]
-
-    for i, product in enumerate(products, start=1):
-        url = product["url"]
-        target_price = product["target_price"]
-        recipient = product["email"]
-
-        title, price = fetch_flipkart(url)
-
-        print(f"\n{ts} Checking #{i}: {url}")
-        print(f"Parsed -> title: '{title}', price: {price}")
-
-        if recipient and price:
-            subject = f"Flipkart Price Update: {title}"
-            body = (
-                f"Product: {title}\n"
-                f"URL: {url}\n"
-                f"Current Price: ₹{price}\n"
-                f"Target Price: ₹{target_price}\n"
-                f"Checked at: {ts}"
-            )
-            send_email(recipient, subject, body)
-        else:
-            print("⚠️ No email recipient or price missing. Skipping send.")
+        browser.close()
+        return title, price
 
 if __name__ == "__main__":
-    main()
+    print(f"[{datetime.now()}] 🔎 Checking current Flipkart prices...")
+
+    for idx, product in enumerate(PRODUCTS, 1):
+        url = product["url"]
+        print(f"[{datetime.now()}] Checking #{idx}: {url}")
+
+        try:
+            title, price = fetch_with_playwright(url)
+            print(f"Parsed -> title: '{title}', price: {price}")
+        except Exception as e:
+            print(f"⚠️ Error scraping {url}: {e}")
+            title, price = "Unknown", None
+
+        if product.get("email") and price:
+            subject = f"[Price Update] {title} → ₹{price}"
+            body = f"Product: {title}\nCurrent Price: ₹{price}\nURL: {url}\nChecked at {datetime.now()}"
+            send_email(subject, body, product["email"])
+        else:
+            print("⚠️ No email recipient or price missing. Skipping send.")
