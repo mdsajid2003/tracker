@@ -43,7 +43,7 @@ Tracker is a data tracking and management application designed to help users mon
 Make sure the following are installed on your system:
 
 * Node.js
-* npm or yarn
+* npm
 * MongoDB
 
 ### Clone the Repository
